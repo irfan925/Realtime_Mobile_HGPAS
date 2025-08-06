@@ -115,7 +115,7 @@ function distance(x1,y1,x2,y2){
 
 function download_csv(){
     //define the heading for each row of the data
-    var csv = 'time(ms), frame_duration(ms), hsL, hsR, shoulderL.x, shoulderL.y, shoulderR.x, shoulderR.y, hipL.x, hipL.y, kneeL.x, kneeL.y, ankleL.x, ankleL.y, hipR.x, hipR.y, kneeR.x, kneeR.y, ankleR.x, ankleR.y, rk_ang, lk_ang, ra_ang, la_ang, hipR_ang, hipL_ang, stepL, shoulderL.x, shoulderL.y, shoulderL.z, shoulderR.x, shoulderR.y, shoulderR.z, hipL.x, hipL.y, hipL.z, hipR.x, hipR.y, hipR.z, kneeL.x, kneeL.y, kneeL.z, kneeR.x, kneeR.y, kneeR.z, ankleL.x, ankleL.y, ankleL.z, ankleR.x, ankleR.y, ankleR.z, heelL.x, heelL.y, heelL.z, heelR.x, heelR.y, heelR.z, footIndexL.x, footIndexL.y, footIndexL.z, footIndexR.x, footIndexR.y, footIndexR.z\n';
+    var csv = 'time(ms), hsL, hsR, shoulderL.x, shoulderL.y, shoulderR.x, shoulderR.y, hipL.x, hipL.y, kneeL.x, kneeL.y, ankleL.x, ankleL.y, hipR.x, hipR.y, kneeR.x, kneeR.y, ankleR.x, ankleR.y, rk_ang, lk_ang, ra_ang, la_ang, hipR_ang, hipL_ang, stepL, shoulderL.x, shoulderL.y, shoulderL.z, shoulderR.x, shoulderR.y, shoulderR.z, hipL.x, hipL.y, hipL.z, hipR.x, hipR.y, hipR.z, kneeL.x, kneeL.y, kneeL.z, kneeR.x, kneeR.y, kneeR.z, ankleL.x, ankleL.y, ankleL.z, ankleR.x, ankleR.y, ankleR.z, heelL.x, heelL.y, heelL.z, heelR.x, heelR.y, heelR.z, footIndexL.x, footIndexL.y, footIndexL.z, footIndexR.x, footIndexR.y, footIndexR.z\n';
     
     //merge the data with CSV
     bezier_points.forEach(function(row) {
@@ -291,7 +291,7 @@ function onResults(results)
 
                     var data = [];
                     data.push(tm.getMilliseconds());
-                    data.push(tm.getMilliseconds() - tm1);
+                    //data.push(tm.getMilliseconds() - tm1);
                     //data.push(tm.getSeconds());
                     data.push(hsL*video.width);  
                     data.push(hsR*video.width);
