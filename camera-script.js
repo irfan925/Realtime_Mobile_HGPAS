@@ -45,10 +45,12 @@ function resetParam(button)
     min = 0;
     sec = 0;
     document.getElementById('time').innerHTML=min+":"+sec;
+    document.getElementById("dir").value = "No";
     flag = false;
-    e.value = "No";
+    txt = "No";
     bezier_points = [];
     console.log(bezier_points);
+    button.innerHTML= "Start"; 
 }
 
 function setParam(button)
@@ -68,6 +70,7 @@ function setParam(button)
         {
             ///console.log("'select' check")
             alert("Please select a direction of walking");
+            button.innerHTML= "Start"; 
         }
         else
         {
