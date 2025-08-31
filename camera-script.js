@@ -26,6 +26,8 @@ var min = 0, sec = 0, tm1 = 0;
 var flag=false;
 var bezier_points = [];
 
+var feedback_var = [];
+
 
 
 const config ={
@@ -35,6 +37,67 @@ const config ={
     //video:{ width: 280, height: 440, fps: 30}
 };
 
+
+
+/////////////// Standing vs Walking /////////////////
+// Add global vars at top
+let standingWalkingWindow = [];
+const WINDOW_SIZE = 7; // last 15 frames (~0.5s)
+const STILLNESS_THRESHOLD = 0.035;
+const SMOOTHING_FRAMES = 2;
+let stateHistory = [];
+const poseStatusEl = document.getElementById("pose-status");
+
+// Utility: Euclidean distance
+function euclidean(p1, p2) {
+    const dx = p1.x - p2.x, dy = p1.y - p2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Calculate stillness score
+function getStillnessScore(windowFrames) {
+    if (windowFrames.length < 2) return 0;
+
+    const L_ANKLE = 27, R_ANKLE = 28, L_HIP = 23, R_HIP = 24, NOSE = 0;
+
+    // Estimate height for normalization
+    const nose = windowFrames[0][NOSE];
+    const avgAnkle = {
+        x: (windowFrames[0][L_ANKLE].x + windowFrames[0][R_ANKLE].x) / 2,
+        y: (windowFrames[0][L_ANKLE].y + windowFrames[0][R_ANKLE].y) / 2
+    };
+    const height = Math.abs(nose.y - avgAnkle.y) * video.videoHeight;
+
+    // 1. Horizontal ankle displacement difference (better gait signal)
+    const anklePhaseDiff = [];
+    for (let i = 1; i < windowFrames.length; i++) {
+        const leftX = windowFrames[i][L_ANKLE].x * video.videoWidth;
+        const rightX = windowFrames[i][R_ANKLE].x * video.videoWidth;
+        const prevLeftX = windowFrames[i - 1][L_ANKLE].x * video.videoWidth;
+        const prevRightX = windowFrames[i - 1][R_ANKLE].x * video.videoWidth;
+
+        // Total horizontal motion
+        const delta = (Math.abs(leftX - prevLeftX) + Math.abs(rightX - prevRightX)) / 2;
+        anklePhaseDiff.push(delta);
+    }
+    const meanAnkleMotion = anklePhaseDiff.reduce((a, b) => a + b, 0) / anklePhaseDiff.length;
+
+    // 2. Hip vertical bobbing
+    const midHipYs = windowFrames.map(
+        f => ((f[L_HIP].y + f[R_HIP].y) / 2) * video.videoHeight
+    );
+    const meanHip = midHipYs.reduce((a, b) => a + b, 0) / midHipYs.length;
+    const varSum = midHipYs.reduce((s, v) => s + Math.pow(v - meanHip, 2), 0) / midHipYs.length;
+    const hipStd = Math.sqrt(varSum);
+
+    // Weighted score: more weight to ankle movement
+    const w1 = 0.75, w2 = 0.25;
+    return w1 * (meanAnkleMotion / height) + w2 * (hipStd / height);
+}
+
+
+
+/////////////// Standing vs Walking End /////////////////
 
 
 
@@ -118,7 +181,7 @@ function distance(x1,y1,x2,y2){
 
 function download_csv(){
     //define the heading for each row of the data
-    var csv = 'time(ms), hsL, hsR, shoulderL.x, shoulderL.y, shoulderR.x, shoulderR.y, hipL.x, hipL.y, kneeL.x, kneeL.y, ankleL.x, ankleL.y, hipR.x, hipR.y, kneeR.x, kneeR.y, ankleR.x, ankleR.y, rk_ang, lk_ang, ra_ang, la_ang, hipR_ang, hipL_ang, stepL, shoulderL.x, shoulderL.y, shoulderL.z, shoulderR.x, shoulderR.y, shoulderR.z, hipL.x, hipL.y, hipL.z, hipR.x, hipR.y, hipR.z, kneeL.x, kneeL.y, kneeL.z, kneeR.x, kneeR.y, kneeR.z, ankleL.x, ankleL.y, ankleL.z, ankleR.x, ankleR.y, ankleR.z, heelL.x, heelL.y, heelL.z, heelR.x, heelR.y, heelR.z, footIndexL.x, footIndexL.y, footIndexL.z, footIndexR.x, footIndexR.y, footIndexR.z\n';
+    var csv = 'time(ms), stepL, hsL, hsR, hipL.x, hipL.y, kneeL.x, kneeL.y, ankleL.x, ankleL.y, hipR.x, hipR.y, kneeR.x, kneeR.y, ankleR.x, ankleR.y, rk_ang, lk_ang, ra_ang, la_ang, hipR_ang, hipL_ang, shoulderL.x, shoulderL.y, shoulderR.x, shoulderR.y, 3shoulderL.x, 3shoulderL.y, 3shoulderL.z, 3shoulderR.x, 3shoulderR.y, 3shoulderR.z, 3hipL.x, 3hipL.y, 3hipL.z, 3hipR.x, 3hipR.y, 3hipR.z, 3kneeL.x, 3kneeL.y, 3kneeL.z, 3kneeR.x, 3kneeR.y, 3kneeR.z, 3ankleL.x, 3ankleL.y, 3ankleL.z, 3ankleR.x, 3ankleR.y, 3ankleR.z, 3heelL.x, 3heelL.y, 3heelL.z, 3heelR.x, 3heelR.y, 3heelR.z, 3footIndexL.x, 3footIndexL.y, 3footIndexL.z, 3footIndexR.x, 3footIndexR.y, 3footIndexR.z\n';
     
     //merge the data with CSV
     bezier_points.forEach(function(row) {
@@ -276,6 +339,47 @@ function onResults(results)
         let foot_indexL3 = results.poseWorldLandmarks[31];
 
 
+
+        /////////////// Standing vs Walking /////////////////
+
+        if(flag){
+        // ---------------- Standing vs Walking Detection ----------------
+
+            const frameLandmarks = results.poseLandmarks.map(k => ({ x: k.x, y: k.y }));
+            standingWalkingWindow.push(frameLandmarks);
+            if (standingWalkingWindow.length > WINDOW_SIZE) standingWalkingWindow.shift();
+
+            if (standingWalkingWindow.length >= 3) {
+                const score = getStillnessScore(standingWalkingWindow);
+                const currentState = (score < STILLNESS_THRESHOLD) ? "Standing" : "Walking";
+
+                // If state changes, reset smoothing history
+                if (stateHistory.length > 0 && stateHistory[stateHistory.length - 1] !== currentState) {
+                    stateHistory = [];
+                }
+
+                // Smoothing: majority vote
+                stateHistory.push(currentState);
+                if (stateHistory.length > SMOOTHING_FRAMES) stateHistory.shift();
+                const counts = stateHistory.reduce((m, s) => {
+                    m[s] = (m[s] || 0) + 1;
+                    return m;
+                }, {});
+                const smoothState = Object.keys(counts).reduce((a, b) =>
+                    counts[a] > counts[b] ? a : b
+                );
+
+                // Update <h3> label
+                poseStatusEl.innerHTML = `Status: <b>${smoothState}</b> (score: ${score.toFixed(3)})`;
+                poseStatusEl.style.color = smoothState === "Walking" ? "green" : "orange";
+            }
+
+        }
+
+
+        /////////////// Standing vs Walking End /////////////////
+
+
         if(txt === "LR"){
             hsL = heelL.x - hipL.x;
             hsR = heelR.x - hipR.x;  //Left to Right walk
@@ -294,14 +398,12 @@ function onResults(results)
 
                     var data = [];
                     data.push(tm.getMilliseconds());
+                    data.push(ankleL3.x - ankleR3.x)
                     //data.push(tm.getMilliseconds() - tm1);
                     //data.push(tm.getSeconds());
                     data.push(hsL*video.width);  
                     data.push(hsR*video.width);
-					data.push(shoulderL.x*video.width)
-					data.push(shoulderL.y*video.height)
-					data.push(shoulderR.x*video.width)
-					data.push(shoulderR.y*video.height)
+	
 
                     //Storing values in csv for Bezier curves
                     data.push(hipL.x*video.width)
@@ -358,7 +460,15 @@ function onResults(results)
                     data.push(ra_val);
                     data.push(la_val);
                     data.push(hipR_val);
-                    data.push(hipL_val);				
+                    data.push(hipL_val);	
+
+                    feedback_var.push(data)
+                    console.log(feedback_var);
+                    
+                    // data.push(shoulderL.x*video.width)
+					// data.push(shoulderL.y*video.height)
+					// data.push(shoulderR.x*video.width)
+					// data.push(shoulderR.y*video.height)
 					
 					
 					//Spatial Data Store
@@ -370,50 +480,51 @@ function onResults(results)
 					//console.log(dis, velo)
 
 
-					data.push(ankleL3.x - ankleR3.x)
+					
 					//data.push(Math.abs(ankleL.x - ankleR.x))
 					//console.log(Math.abs(ankleL.x - ankleR.x))
 					document.getElementById("dis").innerHTML = (dis*100).toFixed(1)
 					//document.getElementById("Gait Speed").innerHTML = velo
-					data.push(shoulderL3.x)
-					data.push(shoulderL3.y)
-					data.push(shoulderL3.z)
-					data.push(shoulderR3.x)
-					data.push(shoulderR3.y)
-					data.push(shoulderR3.z)
-					data.push(hipL3.x)
-					data.push(hipL3.y)
-					data.push(hipL3.z)
-					data.push(hipR3.x)
-					data.push(hipR3.y)
-					data.push(hipR3.z)
-					data.push(kneeL3.x)
-					data.push(kneeL3.y)
-					data.push(kneeL3.z)
-					data.push(kneeR3.x)
-					data.push(kneeR3.y)
-					data.push(kneeR3.z)
-					data.push(ankleL3.x)
-					data.push(ankleL3.y)
-					data.push(ankleL3.z)
-					data.push(ankleR3.x)
-					data.push(ankleR3.y)
-					data.push(ankleR3.z)
-					data.push(heelL3.x)
-					data.push(heelL3.y)
-					data.push(heelL3.z)
-					data.push(heelR3.x)
-					data.push(heelR3.y)
-					data.push(heelR3.z)
-					data.push(foot_indexL3.x)
-					data.push(foot_indexL3.y)
-					data.push(foot_indexL3.z)
-					data.push(foot_indexR3.x)
-					data.push(foot_indexR3.y)
-					data.push(foot_indexR3.z)
+					// data.push(shoulderL3.x)
+					// data.push(shoulderL3.y)
+					// data.push(shoulderL3.z)
+					// data.push(shoulderR3.x)
+					// data.push(shoulderR3.y)
+					// data.push(shoulderR3.z)
+					// data.push(hipL3.x)
+					// data.push(hipL3.y)
+					// data.push(hipL3.z)
+					// data.push(hipR3.x)
+					// data.push(hipR3.y)
+					// data.push(hipR3.z)
+					// data.push(kneeL3.x)
+					// data.push(kneeL3.y)
+					// data.push(kneeL3.z)
+					// data.push(kneeR3.x)
+					// data.push(kneeR3.y)
+					// data.push(kneeR3.z)
+					// data.push(ankleL3.x)
+					// data.push(ankleL3.y)
+					// data.push(ankleL3.z)
+					// data.push(ankleR3.x)
+					// data.push(ankleR3.y)
+					// data.push(ankleR3.z)
+					// data.push(heelL3.x)
+					// data.push(heelL3.y)
+					// data.push(heelL3.z)
+					// data.push(heelR3.x)
+					// data.push(heelR3.y)
+					// data.push(heelR3.z)
+					// data.push(foot_indexL3.x)
+					// data.push(foot_indexL3.y)
+					// data.push(foot_indexL3.z)
+					// data.push(foot_indexR3.x)
+					// data.push(foot_indexR3.y)
+					// data.push(foot_indexR3.z)
 				
 					
-                    bezier_points.push(data);
+                    //bezier_points.push(data);
+                    //console.log(bezier_points);
 					tm1 = tm.getMilliseconds();
                 }
 
